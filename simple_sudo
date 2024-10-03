@@ -1,0 +1,85 @@
+#!/data/data/com.termux/files/usr/bin/bash
+
+show_ssudo_usage() {
+  cat <<"EOF"
+sudo - Run commands with root access or another user
+  Usage: sudo <command>
+  Usage: sudo [-E] [-u USER] command
+  
+  Option:
+    -E  :  Preserve environment variables from the current shell.
+    -u USER : Switch to user, not root.
+EOF
+}
+
+_is_post() {
+  for e in -u --user -E --preserve-enviroment; do [[ "$e" == "$1" ]] && return 1; done
+	return 0
+}
+
+for arg in "$@"; do
+   if _is_post "$arg"; then break; fi
+   case $arg in
+   -u | --user)
+     SWITCH_USER="$2"
+     shift
+     shift
+     ;;
+   -E | --preserve-enviroment)
+     ENVIRONMENT_PRESERVE=true
+     shift
+     ;;
+  esac
+done
+
+STARTUP_SCRIPT="$@"
+
+if [ -z "$1" ]; then
+   show_ssudo_usage
+   exit 0
+fi
+
+if [[ "$1" == "su" ]]; then
+   echo "You can't invoke root/SuperUser access in sudo!"
+   exit 1
+fi
+
+TERMUX_PATH="/data/data/com.termux/files/usr/bin"
+unset LD_LIBRARY_PATH LD_PRELOAD
+
+SEARCH_SU_BINARY=(
+	"/debug_ramdisk/su"
+	"/sbin/su"
+	"/system/sbin/su"
+	"/system/bin/su"
+	"/system/xbin/su"
+	"/su/bin/su"
+	"/magisk/.core/bin/su"
+	"/system/su"
+)
+SU_ARGS=()
+
+if [ ! -z $SWITCH_USER ]; then
+   SU_ARGS+=("$SWITCH_USER")
+fi
+
+if [ ! -z $ENVIRONMENT_PRESERVE ]; then
+	SU_ARGS+=("--preserve-environment")
+	SU_CMDLINE="LD_PRELOAD=/data/data/com.termux/files/usr/lib/libtermux-exec.so PATH=/data/data/com.termux/files/usr/bin:/debug_ramdisk:/sbin:/sbin/su:/su/bin:/su/xbin:/system/bin:/system/xbin:/data/adb/ksu/bin:/data/adb/magisk/bin"
+else
+	SU_CMDLINE="$TERMUX_PATH/env -i SUDO_GID=$(id -g) SUDO_USER=$(id -u) PREFIX=/data/data/com.termux/files/usr LD_PRELOAD=/data/data/com.termux/files/usr/lib/libtermux-exec.so HOME=/data/data/com.termux/files/home/.suroot TMPDIR=/data/data/com.termux/files/home/.suroot/.tmp ANDROID_DATA=/data TERM=xterm-256color ANDROID_ROOT=/system PATH=/data/data/com.termux/files/usr/bin:/debug_ramdisk:/sbin:/sbin/su:/su/bin:/su/xbin:/system/bin:/system/xbin:/data/adb/ksu/bin:/data/adb/magisk/bin"
+fi
+
+for su in ${SEARCH_SU_BINARY[@]}; do
+	if [ -x $su ]; then
+		SU_ARGS+=("-c")
+		exec $su ${SU_ARGS[@]} "$SU_CMDLINE $STARTUP_SCRIPT"
+		IS_SU_EXECUTED="1"
+		break
+	fi
+done
+
+if [ -z "$IS_SU_EXECUTED" ]; then
+	echo "Can't find any SuperUser binary!"
+	echo "Make sure you're rooted and allow Termux for SuperUser access."
+fi
